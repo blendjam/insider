@@ -1,0 +1,7 @@
+{
+  "Everyday things": ["Umbrella", "Toothbrush", "Elevator", "Microwave", "Backpack", "Candle", "Mailbox", "Sunglasses", "Key", "Pillow", "Bicycle", "Calendar", "Thermos", "Suitcase", "Alarm clock", "Scissors", "Washing machine", "Flashlight"],
+  "Food & drink": ["Pancake", "Sushi", "Lemonade", "Popcorn", "Avocado", "Pretzel", "Cinnamon", "Dumpling", "Watermelon", "Espresso", "Pineapple", "Waffle", "Ramen", "Milkshake", "Taco", "Cupcake", "Olive", "Burrito"],
+  "Places": ["Aquarium", "Airport", "Lighthouse", "Bookstore", "Volcano", "Museum", "Desert", "Rooftop", "Subway", "Greenhouse", "Campground", "Bakery", "Library", "Ice rink", "Train station", "Farm", "Castle", "Planetarium"],
+  "Nature": ["Hummingbird", "Thunderstorm", "Cactus", "Tide pool", "Mushroom", "Northern lights", "Seashell", "Bamboo", "Firefly", "Glacier", "Sunflower", "Coral reef", "Pinecone", "Waterfall", "Chameleon", "Dandelion", "Owl", "Meadow"],
+  "Culture & fun": ["Karaoke", "Roller coaster", "Board game", "Magic trick", "Film festival", "Treasure hunt", "Jazz band", "Puppet show", "Costume party", "Circus", "Comic book", "Escape room", "Fireworks", "Talent show", "Photo booth", "Street parade", "Video game", "Dance class"]
+}

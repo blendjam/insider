@@ -5,13 +5,17 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
-    "preview": "vite preview"
+    "dev:server": "npm --prefix server run dev",
+    "build": "tsc -b && vite build && npm --prefix server run build",
+    "build:server": "npm --prefix server run build",
+    "preview": "vite preview",
+    "start": "npm --prefix server start"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.4.1",
     "react": "^19.1.0",
-    "react-dom": "^19.1.0"
+    "react-dom": "^19.1.0",
+    "socket.io-client": "^4.8.1"
   },
   "devDependencies": {
     "@tailwindcss/vite": "^4.3.3",
