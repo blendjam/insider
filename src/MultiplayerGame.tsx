@@ -173,6 +173,7 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
   const [room, setRoom] = useState<PublicRoom | null>(null);
   const [playerId, setPlayerId] = useState("");
   const [privateRole, setPrivateRole] = useState<PrivateRole | null>(null);
+  const [roleVisible, setRoleVisible] = useState(false);
   const [guess, setGuess] = useState("");
   const [guessOpen, setGuessOpen] = useState(false);
   const [timeNow, setTimeNow] = useState(Date.now());
@@ -214,7 +215,10 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
     });
     client.on("disconnect", () => setConnected(false));
     client.on("room:update", nextRoom => setRoom(nextRoom));
-    client.on("player:private", role => setPrivateRole(role));
+    client.on("player:private", role => {
+      setPrivateRole(role);
+      setRoleVisible(false);
+    });
     client.on("room:error", message => setNotice(message));
     return () => {
       client.removeAllListeners();
@@ -371,6 +375,7 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
     setRoom(null);
     setPlayerId("");
     setPrivateRole(null);
+    setRoleVisible(false);
     setGuessOpen(false);
     setNotice("");
     window.history.replaceState({}, "", window.location.pathname);
@@ -650,20 +655,34 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
             {room.stage === "reveal" && (
               <div className="room-stage private-stage">
                 <div className="section-kicker">
-                  ROUND {String(room.round).padStart(2, "0")} · JUST FOR YOU
+                  ROUND {String(room.round).padStart(2, "0")} · Tap to see your role
                 </div>
-                <h2>
-                  Your role is <span>private.</span>
-                </h2>
-                <p className="stage-lead">
-                  You’re signed in as {ownPlayer?.name}. Keep this screen to yourself.
-                </p>
-                <div className={`private-role-card role-${privateRole?.role ?? "loading"}`}>
+                <div
+                  className={`private-role-card ${!privateRole ? "role-loading" : roleVisible ? `role-${privateRole.role}` : "role-hidden"}`}
+                  role="button"
+                  tabIndex={privateRole ? 0 : -1}
+                  aria-label={
+                    privateRole
+                      ? roleVisible
+                        ? "Your role and word are visible. Tap to hide them."
+                        : "Your role and word are hidden. Tap to reveal them."
+                      : "Waiting for your secret role"
+                  }
+                  aria-pressed={roleVisible}
+                  onClick={() => {
+                    if (privateRole) setRoleVisible(visible => !visible);
+                  }}
+                  onKeyDown={event => {
+                    if (privateRole && (event.key === "Enter" || event.key === " ")) {
+                      event.preventDefault();
+                      setRoleVisible(visible => !visible);
+                    }
+                  }}>
                   {!privateRole ? (
                     <div className="private-loading">
                       <span className="waiting-pulse" /> Dealing your secret role…
                     </div>
-                  ) : (
+                  ) : roleVisible ? (
                     <>
                       <div className="private-role-emblem">
                         {privateRole.role === "judge"
@@ -699,6 +718,12 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                         )}
                       </p>
                     </>
+                  ) : (
+                    <div className="role-card-cover" aria-hidden="true">
+                      <span className="role-cover-icon">◉</span>
+                      <strong>Tap to reveal</strong>
+                      <span>Your role and word are hidden</span>
+                    </div>
                   )}
                 </div>
                 <div className="reveal-ready-row">
@@ -749,13 +774,13 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                     </div>
                   )}
                 </div>
-                <div className="online-game-card questions-card">
+                <div className="online-game-card px-2">
                   <div className="question-orbit orbit-one" />
                   <div className="question-orbit orbit-two" />
                   <span className="question-mark">?</span>
                   <strong>YES. NO. MAYBE.</strong>
                   <p>
-                    Ask questions the group can answer. The Insider knows the word — can you work it
+                    Ask questions the host will answer. The Insider knows the word — can you work it
                     out?
                   </p>
                   <div className="answer-chips">
@@ -1042,9 +1067,6 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                   })}
                 </div>
                 <div className="online-game-footer result-online-footer">
-                  <button className="secondary-button" onClick={leaveRoom}>
-                    Leave room
-                  </button>
                   {isHost ? (
                     <button
                       className="primary-button"
@@ -1058,11 +1080,14 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                       <span>→</span>
                     </button>
                   ) : (
-                    <div className="waiting-host">
+                    <div className="waiting-host flex">
                       <span className="waiting-pulse" /> Waiting for the host to start another
                       round.
                     </div>
                   )}
+                  <button className="secondary-button" onClick={leaveRoom}>
+                    Leave room
+                  </button>
                 </div>
               </div>
             )}
