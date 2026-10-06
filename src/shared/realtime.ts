@@ -54,7 +54,7 @@ export type ServerToClientEvents = {
 
 export type ClientToServerEvents = {
   'room:create': (
-    input: { name: string; category: string },
+    input: { name: string; category: string; code?: string },
     callback: (result: Ack<{ room: string; playerId: string }>) => void,
   ) => void
   'room:join': (

@@ -14,9 +14,61 @@ type GameSocket = Socket<ServerToClientEvents, ClientToServerEvents>
 type SavedSession = { code: string; playerId: string; name: string }
 type SavedPlayerInfo = { code: string; name: string }
 
-const WORD_DECKS = ['Everyday things', 'Food & drink', 'Places', 'Nature', 'Culture & fun']
+const WORD_DECKS = [
+  { name: 'Everyday things', icon: '✳' },
+  { name: 'Food & drink', icon: '◒' },
+  { name: 'Places', icon: '⌂' },
+  { name: 'Nature', icon: '❋' },
+  { name: 'Culture & fun', icon: '✴' },
+]
 const SESSION_KEY = 'afterhours-online-session'
 const PLAYER_INFO_KEY = 'afterhours-player-info'
+
+function DeckPicker({
+  value,
+  onChange,
+  disabled = false,
+}: {
+  value: string
+  onChange: (value: string) => void
+  disabled?: boolean
+}) {
+  const [open, setOpen] = useState(false)
+  const selectedDeck = WORD_DECKS.find((deck) => deck.name === value) ?? WORD_DECKS[0]
+
+  return (
+    <div className="category-picker-wrap multiplayer-deck-picker">
+      <button
+        type="button"
+        className={`category-picker ${open ? 'picker-open' : ''}`}
+        disabled={disabled}
+        onClick={() => setOpen((isOpen) => !isOpen)}
+        aria-haspopup="listbox"
+        aria-expanded={open}
+      >
+        <span className="category-icon">{selectedDeck.icon}</span>
+        <span>{selectedDeck.name}</span>
+        <span className="picker-chevron" aria-hidden="true">⌄</span>
+      </button>
+      {open && (
+        <div className="category-menu multiplayer-category-menu" role="listbox" aria-label="Secret word deck">
+          {WORD_DECKS.map((deck) => (
+            <button
+              type="button"
+              role="option"
+              aria-selected={value === deck.name}
+              key={deck.name}
+              onClick={() => { onChange(deck.name); setOpen(false) }}
+            >
+              <span>{deck.icon}</span>{deck.name}
+              {value === deck.name && <span className="category-selected-check" aria-hidden="true">✓</span>}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
 
 function readSession(): SavedSession | null {
   try {
@@ -91,7 +143,7 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
   const savedRoomFromLink = new URLSearchParams(window.location.search).get('room') ?? ''
   const [roomCodeInput, setRoomCodeInput] = useState((savedRoomFromLink || savedInfo.code).toUpperCase())
   const [name, setName] = useState(readSession()?.name ?? savedInfo.name)
-  const [category, setCategory] = useState(WORD_DECKS[0])
+  const [category, setCategory] = useState(WORD_DECKS[0].name)
   const [room, setRoom] = useState<PublicRoom | null>(null)
   const [playerId, setPlayerId] = useState('')
   const [privateRole, setPrivateRole] = useState<PrivateRole | null>(null)
@@ -184,8 +236,9 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
       return
     }
     setBusy(true)
+    const requestedCode = roomCodeInput.trim().toUpperCase()
     const result = await request<{ room: string; playerId: string }>((callback) => {
-      socket.emit('room:create', { name, category }, callback)
+      socket.emit('room:create', { name, category, ...(requestedCode ? { code: requestedCode } : {}) }, callback)
     })
     setBusy(false)
     if (!result.ok) {
@@ -205,13 +258,14 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
       setNotice('Enter your name first.')
       return
     }
-    if (!roomCodeInput.trim()) {
+    const code = roomCodeInput.trim().toUpperCase()
+    if (!code) {
       setNotice('Enter a room code to join.')
       return
     }
     setBusy(true)
     const result = await request<{ room: string; playerId: string }>((callback) => {
-      socket.emit('room:join', { code: roomCodeInput, name }, callback)
+      socket.emit('room:join', { code, name }, callback)
     })
     setBusy(false)
     if (!result.ok) {
@@ -285,12 +339,18 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
       <div className="ambient-glow" aria-hidden="true" />
       <header className="topbar">
         <button className="brand" onClick={leaveRoom} aria-label="Go to online game lobby">
-          <span className="brand-mark"><span className="online-brand-symbol">✳</span></span>
+          <span className="brand-mark"><span className="online-brand-symbol">👁</span></span>
           <span>AFTER<span className="brand-dot">HOURS</span></span>
         </button>
-        <div className="topbar-center"><span className={`live-indicator ${connected ? '' : 'offline-indicator'}`} /> {connected ? 'LIVE MULTIPLAYER' : 'CONNECTING TO SERVER'}</div>
         <div className="topbar-right">
-          {room && <span className="round-pill"><span className="round-dot" /> ROOM {room.code}</span>}
+          {room && 
+          (
+            <span className="round-pill">
+              <span className="text-text-muted">ROOM: </span> { room.code} 
+            </span>
+          )
+          }
+          
           <button className="mode-switch" onClick={onPassPlay}>PASS &amp; PLAY <span>↗</span></button>
         </div>
       </header>
@@ -299,7 +359,7 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
         <section className="intro-row online-intro">
           <div>
             <div className="eyebrow"><span className="eyebrow-line" /> THE GROUP CHAT IS IN SESSION</div>
-            <h1>Trust is a <span className="title-accent">game.</span></h1>
+            <h1 className="text-control-text-active">Trust is a <span className="text-text-primary">game.</span></h1>
             <p className="intro-copy">Every player on their own phone. One word. One Insider.</p>
           </div>
           <div className="intro-stamp"><span>PLAY FROM<br />ANYWHERE</span><span className="stamp-icon">↗</span></div>
@@ -313,7 +373,7 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
             </div>
             <div className="join-create-content">
               <div className="section-kicker">BRING YOUR OWN DEVICE</div>
-              <h2>Start a room.<br /><span>Or join the game.</span></h2>
+              <h2>Start a room.<br />Or join the<span> game.</span></h2>
               <p className="join-intro">Everyone joins from their own phone. Roles are private, the word stays secret, and the conversation happens out loud.</p>
 
               <form className="online-form" onSubmit={(event) => event.preventDefault()}>
@@ -323,13 +383,13 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                 </label>
                 <label className="online-field">
                   <span className="field-label">ROOM CODE</span>
-                  <input autoComplete="off" maxLength={6} placeholder="Enter a code to join" value={roomCodeInput} onChange={(event) => setRoomCodeInput(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} className="room-code-input" />
+                  <input autoComplete="off" maxLength={6} placeholder="Enter a code to join or create" value={roomCodeInput} onChange={(event) => setRoomCodeInput(event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, ''))} className="room-code-input" />
                 </label>
                 <div className="entry-actions">
-                  <button className="primary-button create-room-button" type="button" disabled={!connected || busy} onClick={() => void createRoom()}>
+                  <button className="secondary-button create-room-button" type="button" disabled={!connected || busy} onClick={() => void createRoom()}>
                     {busy ? 'Please wait…' : 'Create room'} <span>→</span>
                   </button>
-                  <button className="secondary-button join-room-button" type="button" disabled={!connected || busy} onClick={() => void joinRoom()}>
+                  <button className="green-button join-room-button" type="button" disabled={!connected || busy} onClick={() => void joinRoom()}>
                     Join room <span>→</span>
                   </button>
                 </div>
@@ -381,9 +441,7 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                   <div className="room-settings">
                     <label className="online-field">
                       <span className="field-label">SECRET WORD DECK</span>
-                      <select disabled={!isHost} value={room.category} onChange={(event) => void changeCategory(event.target.value)}>
-                        {WORD_DECKS.map((deck) => <option key={deck}>{deck}</option>)}
-                      </select>
+                      <DeckPicker value={room.category} onChange={(nextCategory) => void changeCategory(nextCategory)} disabled={!isHost} />
                     </label>
                     <div className="setting-fact"><span>✳</span><p>The Judge and Insider see the word privately. Everyone else gets their own Citizen role.</p></div>
                     {isHost ? (

@@ -354,7 +354,7 @@ function PassPlayGame({ onBack }: { onBack: () => void }) {
         <section className="intro-row">
           <div>
             <div className="eyebrow"><span className="eyebrow-line" /> A GAME OF HIDDEN INTENTIONS</div>
-            <h1>Trust is a <span className="title-accent">game.</span></h1>
+            <h1 className="text-control-text-active">Trust is a <span className="title-accent">game.</span></h1>
             <p className="intro-copy">Find the word. Catch the Insider. Try not to look suspicious.</p>
           </div>
           <div className="intro-stamp"><span>GATHER<br />YOUR PEOPLE</span><span className="stamp-icon">↗</span></div>
@@ -463,9 +463,9 @@ function PassPlayGame({ onBack }: { onBack: () => void }) {
                   <div className="deck-note"><span className="tiny-spark">✳</span><span>A new secret word every round</span></div>
                 </div>
 
-                <div className="panel-actions">
+                <div className="panel-actions ">
                   <div className="action-hint"><span className="hint-dot" /> ROLES ARE DEALT AT RANDOM</div>
-                  <button className="primary-button" onClick={startGame}>
+                  <button className="green-button" onClick={startGame}>
                     Start the game <Icon name="arrow" size={17} />
                   </button>
                 </div>

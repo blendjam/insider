@@ -1,14 +1,16 @@
 import 'dotenv/config'
 import { createServer } from 'node:http'
 import { randomBytes, randomUUID } from 'node:crypto'
-import { readFileSync } from 'node:fs'
 import { dirname, resolve } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import express from 'express'
 import { Server, type Socket } from 'socket.io'
+import decksJson from '../word-decks.json' with { type: 'json' }
 
-const __dirname = dirname(fileURLToPath(import.meta.url))
-const decks = JSON.parse(readFileSync(resolve(__dirname, '../word-decks.json'), 'utf8')) as Record<string, string[]>
+const moduleLocation = import.meta.url
+const modulePath = moduleLocation.startsWith('file:') ? fileURLToPath(moduleLocation) : moduleLocation
+const __dirname = dirname(modulePath)
+const decks = decksJson as Record<string, string[]>
 const port = Number.parseInt(process.env.PORT || '3001', 10)
 const allowedOrigins = new Set(
   (process.env.CLIENT_ORIGIN || 'http://localhost:5173')
@@ -16,6 +18,27 @@ const allowedOrigins = new Set(
     .map((origin) => origin.trim())
     .filter(Boolean),
 )
+const allowedPreviewHosts = [...allowedOrigins]
+  .filter((origin) => origin.startsWith('https://*.'))
+  .map((origin) => origin.slice('https://*.'.length).toLowerCase())
+
+function isAllowedOrigin(origin: string): boolean {
+  if (allowedOrigins.has(origin)) return true
+
+  let parsedOrigin: URL
+  try {
+    parsedOrigin = new URL(origin)
+  } catch {
+    return false
+  }
+  if (parsedOrigin.protocol !== 'https:' || parsedOrigin.origin !== origin) return false
+
+  return allowedPreviewHosts.some((host) => {
+    const suffix = `.${host}`
+    const subdomain = parsedOrigin.hostname.slice(0, -suffix.length)
+    return parsedOrigin.hostname.endsWith(suffix) && subdomain.length > 0 && !subdomain.includes('.')
+  })
+}
 
 const app = express()
 app.disable('x-powered-by')
@@ -39,6 +62,7 @@ interface Player {
   name: string
   socketId: string | null
   connected: boolean
+  disconnectedAt: number | null
   ready: boolean
   role: Role | null
 }
@@ -60,6 +84,7 @@ interface Room {
   outcomeReason: string | null
   createdAt: number
   lastActivity: number
+  emptySince: number | null
   guessAt: Map<string, number>
 }
 
@@ -69,7 +94,7 @@ interface SocketData {
 }
 
 interface ClientToServerEvents {
-  'room:create': (input: { name: string; category: string }, callback: AckCallback<{ room: string; playerId: string }>) => void
+  'room:create': (input: { name: string; category: string; code?: string }, callback: AckCallback<{ room: string; playerId: string }>) => void
   'room:join': (input: { code: string; name: string }, callback: AckCallback<{ room: string; playerId: string }>) => void
   'room:resume': (input: { code: string; playerId: string }, callback: AckCallback<{ room: string; playerId: string }>) => void
   'room:leave': () => void
@@ -96,7 +121,7 @@ type GameServer = Server<ClientToServerEvents, ServerToClientEvents, Record<stri
 const io: GameServer = new Server(httpServer, {
   cors: {
     origin(origin, callback) {
-      if (!origin || allowedOrigins.has(origin)) callback(null, true)
+      if (!origin || isAllowedOrigin(origin)) callback(null, true)
       else callback(new Error('This origin is not allowed to connect.'))
     },
     methods: ['GET', 'POST'],
@@ -109,8 +134,15 @@ const io: GameServer = new Server(httpServer, {
 const rooms = new Map<string, Room>()
 const roomCodeAlphabet = '23456789ABCDEFGHJKLMNPQRSTUVWXYZ'
 const MAX_ROOM_AGE = 24 * 60 * 60 * 1000
+const EMPTY_ROOM_TTL = 5 * 60 * 1000
+const DISCONNECTED_PLAYER_TTL = 30 * 60 * 1000
 
-function createCode(): string {
+function createCode(requestedCode?: string): string {
+  if (requestedCode) {
+    if (rooms.has(requestedCode)) throw new Error('That room code is already in use.')
+    return requestedCode
+  }
+
   let code
   do {
     code = Array.from(randomBytes(6), (byte) => roomCodeAlphabet[byte % roomCodeAlphabet.length]).join('')
@@ -130,6 +162,12 @@ function cleanCode(value: unknown): string {
 
 function connectedPlayers(room: Room): Player[] {
   return [...room.players.values()].filter((player) => player.connected)
+}
+
+function updateEmptySince(room: Room, now = Date.now()): void {
+  room.emptySince = connectedPlayers(room).length === 0
+    ? room.emptySince ?? now
+    : null
 }
 
 function playerSocket(player: Player | undefined): GameSocket | undefined {
@@ -188,14 +226,14 @@ function handleAck<T>(socket: GameSocket, callback: AckCallback<T>, action: () =
   }
 }
 
-function makeRoom({ name, category, socket }: { name: string; category: string; socket: GameSocket }): { room: Room; player: Player } {
+function makeRoom({ name, category, code, socket }: { name: string; category: string; code?: string; socket: GameSocket }): { room: Room; player: Player } {
   if (!name) throw new Error('Enter your name first.')
   if (!Object.hasOwn(decks, category)) throw new Error('Choose a valid word deck.')
-  const code = createCode()
+  const roomCode = createCode(code)
   const playerId = randomUUID()
-  const player: Player = { id: playerId, name, socketId: socket.id, connected: true, ready: false, role: null }
+  const player: Player = { id: playerId, name, socketId: socket.id, connected: true, disconnectedAt: null, ready: false, role: null }
   const room: Room = {
-    code,
+    code: roomCode,
     category,
     hostId: playerId,
     stage: 'lobby',
@@ -211,11 +249,12 @@ function makeRoom({ name, category, socket }: { name: string; category: string; 
     outcomeReason: null,
     createdAt: Date.now(),
     lastActivity: Date.now(),
+    emptySince: null,
     guessAt: new Map(),
   }
-  rooms.set(code, room)
-  socket.join(code)
-  socket.data.roomCode = code
+  rooms.set(roomCode, room)
+  socket.join(roomCode)
+  socket.data.roomCode = roomCode
   socket.data.playerId = playerId
   broadcast(room)
   return { room, player }
@@ -241,7 +280,9 @@ function enterRoom(socket: GameSocket, room: Room, player: Player): void {
   }
   player.socketId = socket.id
   player.connected = true
+  player.disconnectedAt = null
   room.lastActivity = Date.now()
+  updateEmptySince(room)
   socket.join(room.code)
   socket.data.roomCode = room.code
   socket.data.playerId = player.id
@@ -349,7 +390,8 @@ function completeReveal(room: Room): void {
 io.on('connection', (socket) => {
   socket.on('room:create', (input, callback) => handleAck(socket, callback, () => {
     const name = cleanName(input?.name)
-    const { room, player } = makeRoom({ name, category: input?.category, socket })
+    const code = cleanCode(input?.code)
+    const { room, player } = makeRoom({ name, category: input?.category, code, socket })
     return { room: room.code, playerId: player.id }
   }))
 
@@ -362,7 +404,9 @@ io.on('connection', (socket) => {
     socket.data.playerId = undefined
     player.connected = false
     player.socketId = null
-    room.lastActivity = Date.now()
+    player.disconnectedAt = Date.now()
+    room.lastActivity = player.disconnectedAt
+    updateEmptySince(room, player.disconnectedAt)
     broadcast(room)
     tryCompleteVotes(room)
   })
@@ -381,12 +425,13 @@ io.on('connection', (socket) => {
     }
     if (room.stage !== 'lobby') throw new Error('This game has already started.')
     if (room.players.size >= 12) throw new Error('This room is full.')
-    const player: Player = { id: randomUUID(), name, socketId: socket.id, connected: true, ready: false, role: null }
+    const player: Player = { id: randomUUID(), name, socketId: socket.id, connected: true, disconnectedAt: null, ready: false, role: null }
     room.players.set(player.id, player)
     socket.join(room.code)
     socket.data.roomCode = room.code
     socket.data.playerId = player.id
     room.lastActivity = Date.now()
+    updateEmptySince(room)
     broadcast(room)
     return { room: room.code, playerId: player.id }
   }))
@@ -498,7 +543,9 @@ io.on('connection', (socket) => {
     if (!room || !player || player.socketId !== socket.id) return
     player.connected = false
     player.socketId = null
-    room.lastActivity = Date.now()
+    player.disconnectedAt = Date.now()
+    room.lastActivity = player.disconnectedAt
+    updateEmptySince(room, player.disconnectedAt)
     broadcast(room)
     tryCompleteVotes(room)
   })
@@ -507,9 +554,33 @@ io.on('connection', (socket) => {
 const timers = setInterval(() => {
   const now = Date.now()
   for (const [code, room] of rooms) {
+    updateEmptySince(room, now)
+    if (room.emptySince !== null && now - room.emptySince >= EMPTY_ROOM_TTL) {
+      rooms.delete(code)
+      continue
+    }
     if (now - room.lastActivity > MAX_ROOM_AGE) {
       rooms.delete(code)
       continue
+    }
+    let removedDisconnectedPlayers = false
+    for (const [playerId, player] of room.players) {
+      if (player.connected || player.disconnectedAt === null || now - player.disconnectedAt < DISCONNECTED_PLAYER_TTL) continue
+      room.players.delete(playerId)
+      room.handVotes.delete(playerId)
+      room.ballots.delete(playerId)
+      room.guessAt.delete(playerId)
+      room.tiedPlayerIds = room.tiedPlayerIds.filter((tiedPlayerId) => tiedPlayerId !== playerId)
+      if (room.hostId === playerId) {
+        const nextHost = connectedPlayers(room)[0]
+        if (nextHost) room.hostId = nextHost.id
+      }
+      removedDisconnectedPlayers = true
+    }
+    if (removedDisconnectedPlayers) {
+      const previousStage = room.stage
+      tryCompleteVotes(room)
+      if (room.stage === previousStage) broadcast(room)
     }
     if (!room.deadline || now < room.deadline) continue
     if (room.stage === 'questions') finishQuestions(room)
