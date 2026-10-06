@@ -401,11 +401,12 @@ button:disabled { cursor: not-allowed; }
 .online-field input:focus, .online-field select:focus { border-color: rgb(var(--lime-rgb) / .48); }
 .online-field input::placeholder { color: #66685f; }
 .online-field select { cursor: pointer; }
-.room-code-input { font: 700 14px 'Space Grotesk',sans-serif !important; letter-spacing: .24em; }
+.room-code-input { font: 700 14px 'Space Grotesk',sans-serif !important; letter-spacing: .24em;}
+.room-code-input::placeholder {letter-spacing:normal;}
 .create-room-button { width: 100%; min-height: 43px; margin-top: 4px; }
 .create-room-button span { margin-left: auto; font-size: 14px; }
-.online-fineprint { display: flex; align-items: center; gap: 8px; margin-top: 19px; color: #797b72; font-size: 9px; line-height: 1.5; }
-.fineprint-lock { color: var(--lime); font-size: 13px; }
+.online-fineprint { display: flex; flex-direction:column; align-items: center; gap: 8px; color: #797b72; font-size: 9px; line-height: 1.5; }
+.fineprint-lock { color: var(--lime); font-size: 13px; margin-right: 4px; }
 .room-panel { min-height: 500px; }
 .room-stage { width: min(100% - 52px, 700px); margin: 0 auto; padding: 30px 0 24px; }
 .room-stage-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
