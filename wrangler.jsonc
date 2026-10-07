@@ -1,9 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
-  "name": "kodewords",
+  "name": "insider",
   // Set this to today's date
   "compatibility_date": "2026-09-14",
-  "assets": {
-    "not_found_handling": "single-page-application",
-  },
+  "pages_build_output_dir": "./dist"
 }
