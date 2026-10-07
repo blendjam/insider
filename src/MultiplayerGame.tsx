@@ -191,6 +191,7 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
 
   useEffect(() => {
     const client = io(import.meta.env.VITE_SOCKET_URL || undefined, {
+      path:"/insider/socket.io",
       autoConnect: true,
       transports: ["websocket", "polling"],
       tryAllTransports: true,
