@@ -10,7 +10,7 @@
     "start": "node dist/index.cjs",
     "dev": "tsx watch src/index.ts",
     "typecheck": "tsc --noEmit -p tsconfig.json",
-    "deploy": "ssh oci \"bash -lc 'source ~/.nvm/nvm.sh && nvm install 24 && nvm use 24 && $HOME/deploy-game.sh git@github.com:blendjam/insider.git && cd $HOME/games/insider && npm ci && npm ci --prefix server && npm run build && pm2 startOrReload server/ecosystem.config.cjs --update-env && pm2 save'\""
+    "deploy:oci": "ssh oci \"bash -lc 'source ~/.nvm/nvm.sh && nvm install 24 && nvm use 24 && \\$HOME/deploy-game.sh git@github.com:blendjam/insider.git && cd \\$HOME/games/insider && npm ci && npm ci --prefix server && npm run build && pm2 startOrReload server/ecosystem.config.cjs --update-env && pm2 save'\""
   },
   "dependencies": {
     "dotenv": "^16.5.0",

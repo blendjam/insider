@@ -95,13 +95,14 @@ interface SocketData {
 
 interface ClientToServerEvents {
   'room:create': (input: { name: string; category: string; code?: string }, callback: AckCallback<{ room: string; playerId: string }>) => void
-  'room:join': (input: { code: string; name: string }, callback: AckCallback<{ room: string; playerId: string }>) => void
+  'room:join': (input: { code: string; name: string; playerId?: string }, callback: AckCallback<{ room: string; playerId: string }>) => void
   'room:resume': (input: { code: string; playerId: string }, callback: AckCallback<{ room: string; playerId: string }>) => void
   'room:leave': () => void
   'room:kick': (input: { playerId: string }, callback: AckCallback) => void
   'room:category': (input: { category: string }, callback: AckCallback) => void
   'room:ready': (input: { ready: boolean }, callback: AckCallback) => void
   'game:start': (callback: AckCallback) => void
+  'game:continue': (callback: AckCallback) => void
   'game:guess': (input: { guess: string }, callback: AckCallback<{ solverId: string }>) => void
   'game:end-discussion': (callback: AckCallback) => void
   'game:hand-vote': (input: { thinksInsider: boolean }, callback: AckCallback) => void
@@ -477,6 +478,16 @@ io.on('connection', (socket) => {
     const room = rooms.get(code)
     if (!room) throw new Error('Room not found. Check the code and try again.')
     if (!name) throw new Error('Enter your name first.')
+    const savedPlayer = input?.playerId ? room.players.get(input.playerId) : undefined
+    if (savedPlayer) {
+      if (savedPlayer.connected) throw new Error('That saved player is already connected.')
+      if ([...room.players.values()].some((player) => player.id !== savedPlayer.id && player.name.toLowerCase() === name.toLowerCase())) {
+        throw new Error('Someone in this room already has that name.')
+      }
+      savedPlayer.name = name
+      enterRoom(socket, room, savedPlayer)
+      return { room: room.code, playerId: savedPlayer.id }
+    }
     const returningPlayer = [...room.players.values()].find((player) => player.name.toLowerCase() === name.toLowerCase())
     if (returningPlayer) {
       if (returningPlayer.connected) throw new Error('Someone in this room already has that name.')
@@ -531,6 +542,16 @@ io.on('connection', (socket) => {
     if (room.players.size > 12) throw new Error('A room can have at most twelve players.')
     if (connectedPlayers(room).length !== room.players.size) throw new Error('Everyone needs to be connected before the game starts.')
     startRound(room)
+    return undefined
+  }))
+
+  socket.on('game:continue', (callback) => handleAck(socket, callback, () => {
+    const { room, player } = requireRoom(socket)
+    if (player.id !== room.hostId || room.stage !== 'reveal') {
+      throw new Error('Only the host can start the game from the role reveal.')
+    }
+    setStage(room, 'questions', 180)
+    broadcast(room)
     return undefined
   }))
 

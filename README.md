@@ -40,7 +40,9 @@ pm2 startOrReload server/ecosystem.config.cjs --update-env
 pm2 save
 ```
 
-To deploy the current GitHub revision to OCI, run `npm run deploy --prefix server` from the project root. This runs the remote deployment script, installs dependencies, builds both the frontend and server, then reloads and saves the PM2 process. Ensure the revision has been pushed before deploying.
+To deploy the current GitHub revision to OCI, run `npm run deploy:oci --prefix server` from the project root. This runs the remote deployment script, installs dependencies, builds both the frontend and server, then reloads and saves the PM2 process. Ensure the revision has been pushed before deploying.
+
+To deploy the Pages frontend, run `npm run deploy` from the project root. This builds with Vite's explicit `production` mode, loading `.env.production` (including `VITE_SOCKET_URL`) into the Pages assets before uploading `dist/`.
 
 For a separately hosted frontend, set `VITE_SOCKET_URL` at build time to the public Node server URL and allow the frontend origin in `CLIENT_ORIGIN`. The Pages wildcard allows `https://<deployment>.insider-69n.pages.dev` without allowing other Pages projects or nested subdomains. Add it alongside the production frontend origin, comma-separated, then reload the server with updated environment variables.
 
@@ -49,5 +51,5 @@ For a separately hosted frontend, set `VITE_SOCKET_URL` at build time to the pub
 - Room codes are six characters. Rooms support 4–12 players and are held in server memory.
 - The room creator is the Judge. The server selects one other player as the Insider and privately sends the word only to those two devices. Citizens receive their role without the word.
 - Wrong guesses, private roles, and ballot selections are never broadcast to other players. The word and roles are revealed to the room only when the round ends.
-- Players can refresh or reconnect on the same device and rejoin their saved room. Joining a room again with the same username resumes that player identity, including the host identity. Rooms are removed after 24 hours of inactivity.
+- Players can refresh or reconnect on the same device and rejoin their saved room. After leaving, rejoining from that device with a different username updates the existing player identity, including host identity. The host can bypass the role-reveal ready wait from host settings. Rooms are removed after 24 hours of inactivity.
 - A process restart clears active rooms. Run one PM2 instance in fork mode; this in-memory room store is not intended for PM2 cluster mode or multiple server replicas.

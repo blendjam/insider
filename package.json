@@ -10,10 +10,11 @@
     "dev": "vite",
     "dev:server": "npm --prefix server run dev",
     "build": "tsc -b && vite build && npm --prefix server run build",
+    "build:pages": "tsc -b && vite build --mode production",
     "build:server": "npm --prefix server run build",
     "preview": "vite preview",
     "start": "npm --prefix server start",
-    "deploy": "npm run build && npx wrangler pages deploy dist"
+    "deploy": "npm run build:pages && npx wrangler pages deploy dist"
   },
   "dependencies": {
     "@vitejs/plugin-react": "^4.4.1",

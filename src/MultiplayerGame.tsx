@@ -13,7 +13,7 @@ import Icon from "./components/Icon";
 
 type GameSocket = Socket<ServerToClientEvents, ClientToServerEvents>;
 type SavedSession = { code: string; playerId: string; name: string };
-type SavedPlayerInfo = { code: string; name: string };
+type SavedPlayerInfo = { code: string; name: string; playerId?: string };
 
 const WORD_DECKS = [
   { name: "Everyday things", icon: "✳" },
@@ -95,7 +95,8 @@ function readSession(): SavedSession | null {
       "playerId" in value &&
       typeof value.playerId === "string" &&
       "name" in value &&
-      typeof value.name === "string"
+      typeof value.name === "string" &&
+      (!("playerId" in value) || typeof value.playerId === "string")
     )
       return value as SavedSession;
   } catch {
@@ -196,13 +197,10 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
     : "";
 
   useEffect(() => {
-    const isInsiderSubpath =
-      import.meta.env.PROD &&
-      (window.location.pathname === "/insider" ||
-        window.location.pathname.startsWith("/insider/"));
-    const socketUrl = isInsiderSubpath ? undefined : import.meta.env.VITE_SOCKET_URL || undefined;
+    const isProd = import.meta.env.VITE_PROD
+    const socketUrl = import.meta.env.VITE_SOCKET_URL || undefined;
     const client = io(socketUrl, {
-      path: isInsiderSubpath ? "/insider/socket.io/" : "/socket.io/",
+      path: isProd ? "/insider/socket.io/" : "/socket.io/",
       autoConnect: true,
       transports: ["websocket", "polling"],
       tryAllTransports: true,
@@ -284,9 +282,15 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
   }, [room?.stage, privateRole?.hasBallot]);
 
   useEffect(() => {
+    const code = room?.code ?? roomCodeInput;
+    const previous = readPlayerInfo();
     localStorage.setItem(
       PLAYER_INFO_KEY,
-      JSON.stringify({ code: room?.code ?? roomCodeInput, name }),
+      JSON.stringify({
+        code,
+        name,
+        ...(previous.code === code && previous.playerId ? { playerId: previous.playerId } : {}),
+      }),
     );
   }, [name, room?.code, roomCodeInput]);
 
@@ -296,7 +300,7 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
     localStorage.setItem(SESSION_KEY, JSON.stringify(session));
     localStorage.setItem(
       PLAYER_INFO_KEY,
-      JSON.stringify({ code: session.code, name: session.name }),
+      JSON.stringify({ code: session.code, name: session.name, playerId: session.playerId }),
     );
     setPlayerId(session.playerId);
     setRoomCodeInput(session.code);
@@ -344,8 +348,19 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
       return;
     }
     setBusy(true);
+    const savedPlayerInfo = readPlayerInfo();
     const result = await request<{ room: string; playerId: string }>(callback => {
-      socket.emit("room:join", { code, name }, callback);
+      socket.emit(
+        "room:join",
+        {
+          code,
+          name,
+          ...(savedPlayerInfo.code === code && savedPlayerInfo.playerId
+            ? { playerId: savedPlayerInfo.playerId }
+            : {}),
+        },
+        callback,
+      );
     });
     setBusy(false);
     if (!result.ok) {
@@ -442,7 +457,7 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
   return (
     <main className="online-app app-shell min-h-screen text-ink">
       <div className="ambient-glow" aria-hidden="true" />
-      <header className="topbar">
+      <header className="topbar mb-2">
         <button className="brand" onClick={leaveRoom} aria-label="Go to online game lobby">
           <span className="brand-mark">
             <Icon name="eye" size={17} />
@@ -457,7 +472,14 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
               <span className="text-text-muted">ROOM: </span> {room.code}
             </span>
           )}
-
+          <span
+            className={`connection-indicator ${connected ? "connection-indicator-online" : ""}`}
+            role="status"
+            aria-label={connected ? "Connected" : "Reconnecting"}
+            title={connected ? "Connected" : "Reconnecting"}>
+            <span className="connection-dot" aria-hidden="true" />
+            <span>{connected ? "LIVE" : "RECONNECTING"}</span>
+          </span>
           <button className="mode-switch" onClick={onPassPlay}>
             PASS &amp; PLAY <span>↗</span>
           </button>
@@ -465,7 +487,8 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
       </header>
 
       <div className="page-wrap">
-        <section className="intro-row online-intro">
+        {(!room || room.stage === "lobby") && (
+          <section className="intro-row">
           <div>
             <h1 className="text-control-text-active">
               Trust is a <span className="text-text-primary">game.</span>
@@ -482,7 +505,8 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
             </span>
             <span className="stamp-icon">↗</span>
           </div>
-        </section>
+          </section>
+        )}
 
         {!room ? (
           <>
@@ -491,9 +515,6 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                 <div className="breadcrumb">
                   <span>ONLINE MODE</span>
                   <span className="crumb-slash">/</span>Make or join a room
-                </div>
-                <div className={`privacy-tag ${connected ? "server-connected" : ""}`}>
-                  <span className="connection-dot" /> {connected ? "SERVER READY" : "CONNECTING"}
                 </div>
               </div>
               <div className="join-create-content">
@@ -572,14 +593,16 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
         ) : (
           <section className="online-panel room-panel">
             <div className="online-panel-top">
-              <div className="breadcrumb">
-                <span>ROOM {room.code}</span>
+              <div className="breadcrumb flex items-center">
+                <span>Round {room.round}</span>
                 <span className="crumb-slash">/</span>
                 {phaseLabel(room.stage)}
               </div>
-              <div className={`privacy-tag ${connected ? "server-connected" : ""}`}>
-                <span className="connection-dot" /> {connected ? "CONNECTED" : "RECONNECTING"}
-              </div>
+              {timeLeft !== null ? (
+                <div className={`timer room-header-timer ${timeLeft <= 30_000 ? "timer-urgent" : ""}`}>
+                  <span>◷</span> {timeLabel(timeLeft)}
+                </div>
+              ) : null}
             </div>
 
             {room.stage === "lobby" && (
@@ -788,23 +811,11 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                     </div>
                   )}
                 </div>
-                <div className="reveal-ready-row">
+                <div className="flex flex-col gap-3 mt-5">
                   <div className="ready-summary">
                     {room.players.filter(player => player.connected && player.ready).length} /{" "}
                     {onlineCount} PLAYERS READY
                   </div>
-                  <button
-                    className="primary-button"
-                    disabled={!privateRole || busy}
-                    onClick={() => {
-                      setRoleVisible(false);
-                      void perform(callback =>
-                        socket?.emit("room:ready", { ready: !ownPlayer?.ready }, callback),
-                      );
-                    }}>
-                    {ownPlayer?.ready ? "I’m ready ✓" : "Got it — ready"} <span>→</span>
-                  </button>
-                </div>
                 <div className="ready-players">
                   {room.players.map((player, index) => (
                     <span
@@ -817,26 +828,62 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                     </span>
                   ))}
                 </div>
+                  <button
+                    className="green-button"
+                    disabled={!privateRole || busy}
+                    onClick={() => {
+                      setRoleVisible(false);
+                      void perform(callback =>
+                        socket?.emit("room:ready", { ready: !ownPlayer?.ready }, callback),
+                      );
+                    }}>
+                    {ownPlayer?.ready ? "I’m ready ✓" : "Got it — ready"} <span>→</span>
+                  </button>
+                </div>
               </div>
             )}
 
             {room.stage === "questions" && (
               <div className="room-stage game-stage">
                 <div className="play-heading">
-                  <div>
-                    <div className="section-kicker">
-                      ROUND {String(room.round).padStart(2, "0")} · ASK AWAY
-                    </div>
-                    <h2>
-                      Find the <span>word.</span>
-                    </h2>
+                  <h2>
+                    Find the <span>word.</span>
+                  </h2>
+                  <div className="play-heading-tools">
+                    <button
+                      type="button"
+                      className={`role-peek-toggle ${roleVisible ? "role-peek-toggle-open" : ""}`}
+                      disabled={!privateRole}
+                      aria-expanded={roleVisible}
+                      onClick={() => setRoleVisible(visible => !visible)}>
+                      <span aria-hidden="true">◉</span>
+                      {roleVisible ? "Hide role" : "My role"}
+                    </button>
                   </div>
-                  {timeLeft !== null && (
-                    <div className={`timer ${timeLeft <= 30_000 ? "timer-urgent" : ""}`}>
-                      <span>◷</span> {timeLabel(timeLeft)}
-                    </div>
-                  )}
                 </div>
+                {roleVisible && privateRole && (
+                  <div
+                    className={`role-peek-panel role-peek-${privateRole.role}`}
+                    id="round-role-details"
+                    aria-live="polite">
+                    <div>
+                      <span className="role-peek-label">YOUR ROLE</span>
+                      <strong>
+                        {privateRole.role === "judge"
+                          ? "Judge"
+                          : privateRole.role === "insider"
+                            ? "Insider"
+                            : "Citizen"}
+                      </strong>
+                    </div>
+                    {privateRole.role !== "citizen" && (
+                      <div className="role-peek-word">
+                        <span className="role-peek-label">SECRET WORD</span>
+                        <strong>{privateRole.word}</strong>
+                      </div>
+                    )}
+                  </div>
+                )}
                 <div className="online-game-card px-2">
                   <div className="question-orbit orbit-one" />
                   <div className="question-orbit orbit-two" />
@@ -855,7 +902,7 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                 <div className="game-hint">
                   <span>✳</span> Say the answer out loud, then the solver enters it on their phone.
                 </div>
-                <div className="game-stage-footer">
+                <div className="game-stage-footer flex-col">
                   {privateRole?.role === "judge" ? (
                     <div className="judge-note">
                       You’re the Judge. Guide the room; players can submit guesses.
@@ -866,7 +913,7 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                     </div>
                   )}
                   {privateRole?.role !== "judge" && (
-                    <button className="primary-button" onClick={() => setGuessOpen(true)}>
+                    <button className="green-button" onClick={() => setGuessOpen(true)}>
                       Guess the word <span>→</span>
                     </button>
                   )}
@@ -883,11 +930,6 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                       Who feels <span>off?</span>
                     </h2>
                   </div>
-                  {timeLeft !== null && (
-                    <div className={`timer ${timeLeft <= 30_000 ? "timer-urgent" : ""}`}>
-                      <span>◷</span> {timeLabel(timeLeft)}
-                    </div>
-                  )}
                 </div>
                 <div className="discussion-callout">
                   <span className="callout-mark">“</span>
@@ -1207,7 +1249,7 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                 placeholder="Type the word…"
                 aria-label="Guess the secret word"
               />
-              <button className="primary-button modal-submit" disabled={busy}>
+              <button className="green-button modal-submit" disabled={busy}>
                 Check the word <span>→</span>
               </button>
             </form>
@@ -1236,6 +1278,26 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                   ×
                 </button>
               </div>
+              {room.stage === "reveal" && (
+                <div className="host-restart-option">
+                  <div>
+                    <strong>Start game now</strong>
+                    <span>
+                      Continue without waiting for everyone to tap ready (
+                      {room.players.filter(player => player.connected && player.ready).length}/
+                      {onlineCount} ready).
+                    </span>
+                  </div>
+                  <button
+                    className="host-settings-action"
+                    disabled={busy}
+                    onClick={() =>
+                      void perform(callback => socket?.emit("game:continue", callback))
+                    }>
+                    Start now
+                  </button>
+                </div>
+              )}
               {room.stage !== "lobby" && (
                 <div className="host-restart-option">
                   <div>

@@ -60,7 +60,7 @@ export type ClientToServerEvents = {
     callback: (result: Ack<{ room: string; playerId: string }>) => void,
   ) => void
   'room:join': (
-    input: { code: string; name: string },
+    input: { code: string; name: string; playerId?: string },
     callback: (result: Ack<{ room: string; playerId: string }>) => void,
   ) => void
   'room:resume': (
@@ -72,6 +72,7 @@ export type ClientToServerEvents = {
   'room:category': (input: { category: string }, callback: (result: Ack) => void) => void
   'room:ready': (input: { ready: boolean }, callback: (result: Ack) => void) => void
   'game:start': (callback: (result: Ack) => void) => void
+  'game:continue': (callback: (result: Ack) => void) => void
   'game:guess': (input: { guess: string }, callback: (result: Ack<{ solverId: string }>) => void) => void
   'game:end-discussion': (callback: (result: Ack) => void) => void
   'game:hand-vote': (input: { thinksInsider: boolean }, callback: (result: Ack) => void) => void
