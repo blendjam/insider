@@ -22,6 +22,7 @@ export type PublicRoom = {
   hostId: string
   stage: GameStage
   round: number
+  roundDurationSeconds: number
   players: PublicPlayer[]
   deadline: number | null
   solverId: string | null
@@ -71,7 +72,7 @@ export type ClientToServerEvents = {
   'room:kick': (input: { playerId: string }, callback: (result: Ack) => void) => void
   'room:category': (input: { category: string }, callback: (result: Ack) => void) => void
   'room:ready': (input: { ready: boolean }, callback: (result: Ack) => void) => void
-  'game:start': (callback: (result: Ack) => void) => void
+  'game:start': (input: { durationSeconds: number }, callback: (result: Ack) => void) => void
   'game:continue': (callback: (result: Ack) => void) => void
   'game:guess': (input: { guess: string }, callback: (result: Ack<{ solverId: string }>) => void) => void
   'game:end-discussion': (callback: (result: Ack) => void) => void
@@ -79,6 +80,6 @@ export type ClientToServerEvents = {
   'game:ballot': (input: { targetId: string }, callback: (result: Ack) => void) => void
   'game:tie-break': (input: { targetId: string }, callback: (result: Ack) => void) => void
   'game:end-round': (callback: (result: Ack) => void) => void
-  'game:restart': (callback: (result: Ack) => void) => void
+  'game:restart': (input: { durationSeconds: number }, callback: (result: Ack) => void) => void
   'game:play-again': (callback: (result: Ack) => void) => void
 }

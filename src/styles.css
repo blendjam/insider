@@ -279,8 +279,11 @@ button:disabled { cursor: not-allowed; }
 .role-peek-label { color: #929489; font: 700 8px 'Space Grotesk',sans-serif; letter-spacing: .1em; }
 .role-peek-panel > div > strong { color: #f2f0e6; font: 600 13px 'Space Grotesk',sans-serif; }
 .role-peek-word > strong { color: var(--lime) !important; font-size: 16px !important; }
-.role-peek-insider { border-color: rgb(242 163 115 / .25); }
-.role-peek-insider .role-peek-word > strong { color: #f2a373 !important; }
+.role-peek-insider { border-color: rgb(250 27 102 / .28); }
+.role-peek-insider > div:first-child > strong,
+.role-peek-insider .role-peek-word > strong { color: #fa1b66 !important; }
+.role-peek-citizen { border-color: rgb(226 162 127 / .25); }
+.role-peek-citizen > div:first-child > strong { color: #e2a27f !important; }
 .role-peek-judge { border-color: rgb(169 198 255 / .25); }
 .role-peek-judge .role-peek-word > strong { color: #a9c6ff !important; }
 .play-heading h2 { margin-top: 8px; }
@@ -406,7 +409,7 @@ button:disabled { cursor: not-allowed; }
 .connection-dot { width: 6px; height: 6px; border-radius: 50%; background: #76786d; }
 .server-connected .connection-dot { background: var(--color-button-green); box-shadow: 0 0 8px rgb(var(--color-button-green-rgb) / .5); }
 .lobby-panel { min-height: 500px; }
-.join-create-content { width: min(100% - 48px, 420px); margin: 0 auto; padding: 35px 0 27px; }
+.join-create-content { width: min(100% - 48px, 420px); margin: 0 auto; padding: 15px 0 27px; }
 .join-create-content h2, .room-stage h2 { margin: 8px 0 8px; color: var(--cream); font: 600 31px/1.13 'Space Grotesk',sans-serif; letter-spacing: -.06em; }
 .join-create-content h2 span, .room-stage h2 span { color: var(--color-ink); }
 .join-intro, .stage-lead { max-width: 405px; margin: 0; color: #92938a; font-size: 11px; line-height: 1.7; }
@@ -430,7 +433,8 @@ button:disabled { cursor: not-allowed; }
 .online-fineprint { display: flex; flex-direction:column; align-items: flex-start; gap: 8px; color: #797b72; font-size: 9px; line-height: 1.5; }
 .fineprint-lock { color: var(--lime); font-size: 13px; margin-right: 4px; }
 .room-panel { min-height: 500px; }
-.room-stage { width: min(100% - 52px, 700px); margin: 0 auto; padding: 30px 0 24px; }
+.room-stage { width: min(100% - 52px, 700px); margin: 0 auto; padding: 10px 0 24px; }
+.room-stage.lobby-stage { width: min(100% - 52px, 700px); }
 .room-stage-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 20px; }
 .room-stage-heading h2 { font-size: 26px; }
 .room-stage-heading p { max-width: 430px; margin: 0; color: #8d8e84; font-size: 10px; line-height: 1.6; }
@@ -464,6 +468,10 @@ button:disabled { cursor: not-allowed; }
 .room-settings { display: flex; flex-direction: column; gap: 12px; }
 .room-settings .online-field { margin: 0; }
 .room-settings .online-field select:disabled { color: #bcbbb0; opacity: 1; }
+.round-duration-options { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 5px; margin-top: 7px; }
+.round-duration-option { min-height: 30px; padding: 0 6px; color: #a8a99e; border: 1px solid #383a31; border-radius: 4px; background: #1a1b17; cursor: pointer; font: 600 9px 'Space Grotesk',sans-serif; white-space: nowrap; }
+.round-duration-option:hover:not(:disabled), .round-duration-selected { color: var(--lime); border-color: rgb(var(--lime-rgb) / .4); background: rgb(var(--lime-rgb) / .06); }
+.round-duration-option:disabled { opacity: .55; cursor: not-allowed; }
 .setting-fact { display: flex; gap: 8px; padding: 9px; border: 1px solid rgb(var(--lime-rgb) / .11); border-radius: 4px; background: rgb(var(--lime-rgb) / .025); }
 .setting-fact > span { color: var(--lime); font-size: 12px; }
 .setting-fact p { margin: 0; color: #919287; font-size: 8px; line-height: 1.6; }
@@ -485,10 +493,12 @@ button:disabled { cursor: not-allowed; }
 .role-cover-icon { display: grid; width: 43px; height: 43px; place-items: center; margin-bottom: 2px; border: 1px solid rgb(var(--lime-rgb) / .2); border-radius: 50%; color: var(--lime); font-size: 20px; }
 .role-card-cover strong { font: 600 15px 'Space Grotesk',sans-serif; }
 .role-card-cover > span:last-child { color: #a1a196; font-size: 11px; }
-.role-insider { border-color: rgba(242,158,111,.22); background: radial-gradient(ellipse at 50% 0%,rgba(242,158,111,.08),transparent 65%),#1a1b17; }
+.role-insider { border-color: rgb(250 27 102 / .28); background: radial-gradient(ellipse at 50% 0%,rgb(250 27 102 / .09),transparent 65%),#1a1b17; }
+.role-citizen { border-color: rgb(226 162 127 / .25); background: radial-gradient(ellipse at 50% 0%,rgb(226 162 127 / .08),transparent 65%),#1a1b17; }
 .role-judge { border-color: rgba(169,198,255,.2); background: radial-gradient(ellipse at 50% 0%,rgba(169,198,255,.075),transparent 65%),#1a1b17; }
 .private-role-emblem { margin-bottom: 7px; color: var(--lime); font-size: 25px; }
-.role-insider .private-role-emblem, .role-insider .role-label { color: #f2a373; }
+.role-insider .private-role-emblem, .role-insider .role-label { color: #fa1b66; }
+.role-citizen .private-role-emblem, .role-citizen .role-label { color: #e2a27f; }
 .role-judge .private-role-emblem, .role-judge .role-label { color: #a9c6ff; }
 .private-role-card h3 { margin: 10px 0 7px; color: #f0eee5; font: 600 21px 'Space Grotesk',sans-serif; letter-spacing: -.04em; }
 .private-role-card p { max-width: 355px; margin: 0; color: #a1a196; font-size: 10px; line-height: 1.7; }
@@ -596,6 +606,9 @@ button:disabled { cursor: not-allowed; }
 .host-settings-close { display: grid; width: 28px; height: 28px; place-items: center; color: #b8b9ad; border: 1px solid #404236; border-radius: 50%; background: transparent; cursor: pointer; font-size: 19px; }
 .host-restart-option { display: grid; grid-template-columns: 1fr auto; align-items: center; gap: 10px; padding: 11px 0; border-top: 1px solid #383a31; border-bottom: 1px solid #383a31; }
 .host-restart-option > div:first-child { display: grid; gap: 4px; }
+.host-restart-duration { margin-top: 5px; }
+.host-restart-duration .field-label { display: block; font-size: 8px; }
+.host-restart-duration .round-duration-options { grid-template-columns: repeat(3, minmax(0, 1fr)); }
 .host-restart-option strong { font-size: 12px; }
 .host-restart-option > div:first-child > span { color: #9b9d91; font-size: 10px; line-height: 1.4; }
 .host-kick-list { display: grid; gap: 7px; }

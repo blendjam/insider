@@ -22,8 +22,42 @@ const WORD_DECKS = [
   { name: "Nature", icon: "❋" },
   { name: "Culture & fun", icon: "✴" },
 ];
+const ROUND_DURATIONS = [
+  { seconds: 30, label: "30 sec" },
+  { seconds: 60, label: "1 min" },
+  { seconds: 90, label: "1.5 min" },
+  { seconds: 120, label: "2 min" },
+  { seconds: 150, label: "2.5 min" },
+  { seconds: 180, label: "3 min" },
+];
 const SESSION_KEY = "afterhours-online-session";
 const PLAYER_INFO_KEY = "afterhours-player-info";
+
+function RoundDurationPicker({
+  value,
+  onChange,
+  disabled = false,
+}: {
+  value: number;
+  onChange: (value: number) => void;
+  disabled?: boolean;
+}) {
+  return (
+    <div className="round-duration-options" role="group" aria-label="Round timer">
+      {ROUND_DURATIONS.map(duration => (
+        <button
+          key={duration.seconds}
+          type="button"
+          className={`round-duration-option ${value === duration.seconds ? "round-duration-selected" : ""}`}
+          aria-pressed={value === duration.seconds}
+          disabled={disabled}
+          onClick={() => onChange(duration.seconds)}>
+          {duration.label}
+        </button>
+      ))}
+    </div>
+  );
+}
 
 function DeckPicker({
   value,
@@ -171,6 +205,7 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
   );
   const [name, setName] = useState(readSession()?.name ?? savedInfo.name);
   const [category, setCategory] = useState(WORD_DECKS[0].name);
+  const [roundDurationSeconds, setRoundDurationSeconds] = useState(120);
   const [room, setRoom] = useState<PublicRoom | null>(null);
   const [playerId, setPlayerId] = useState("");
   const [privateRole, setPrivateRole] = useState<PrivateRole | null>(null);
@@ -192,6 +227,7 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
   const solver = room?.players.find(player => player.id === room.solverId);
   const onlineCount = room?.players.filter(player => player.connected).length ?? 0;
   const timeLeft = room?.deadline ? Math.max(0, room.deadline - timeNow) : null;
+  const roomRoundDuration = room?.roundDurationSeconds;
   const inviteUrl = room
     ? `${window.location.origin}${window.location.pathname}?room=${room.code}`
     : "";
@@ -259,6 +295,10 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
     const interval = window.setInterval(() => setTimeNow(Date.now()), 250);
     return () => window.clearInterval(interval);
   }, [room?.deadline]);
+
+  useEffect(() => {
+    if (roomRoundDuration !== undefined) setRoundDurationSeconds(roomRoundDuration);
+  }, [roomRoundDuration]);
 
   useEffect(() => {
     if (guessOpen && room?.stage !== "questions") setGuessOpen(false);
@@ -412,8 +452,8 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
     setNotice("Correct. The group has two minutes to find the Insider.");
   }
 
-  async function restartGame() {
-    if (await perform(callback => socket?.emit("game:restart", callback))) {
+  async function restartGame(durationSeconds: number) {
+    if (await perform(callback => socket?.emit("game:restart", { durationSeconds }, callback))) {
       setConfirmRestart(false);
       setKickConfirmId("");
     }
@@ -487,7 +527,7 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
       </header>
 
       <div className="page-wrap">
-        {(!room || room.stage === "lobby") && (
+        {!room && (
           <section className="intro-row">
           <div>
             <h1 className="text-control-text-active">
@@ -512,7 +552,7 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
           <>
             <section className="online-panel lobby-panel">
               <div className="online-panel-top">
-                <div className="breadcrumb">
+                <div className="breadcrumb items-center">
                   <span>ONLINE MODE</span>
                   <span className="crumb-slash">/</span>Make or join a room
                 </div>
@@ -568,27 +608,6 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                 </form>
               </div>
             </section>
-            <section className="online-panel px-4 my-2 py-2">
-              <ul className="online-fineprint">
-                <span className="font-bold">RULES:</span>
-                <li>
-                  <span className="fineprint-lock">◇</span>
-                  <span>One player secretly knows the word.</span>
-                </li>
-                <li>
-                  <span className="fineprint-lock">◇</span>
-                  <span>Ask questions to find the word.</span>
-                </li>
-                <li>
-                  <span className="fineprint-lock">◇</span>
-                  <span>Find the Insider before time runs out.</span>
-                </li>
-                <li>
-                  <span className="fineprint-lock">◇</span>
-                  <span>After guessing, vote for the Insider.</span>
-                </li>
-              </ul>
-            </section>
           </>
         ) : (
           <section className="online-panel room-panel">
@@ -609,7 +628,6 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
               <div className="room-stage lobby-stage">
                 <div className="room-stage-heading">
                   <div>
-                    <div className="section-kicker">THE ROOM IS OPEN</div>
                     <h2>
                       Bring the <span>usual suspects.</span>
                     </h2>
@@ -687,6 +705,16 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                         disabled={!isHost}
                       />
                     </label>
+                    {isHost && (
+                      <div className="online-field">
+                        <span className="field-label">ROUND TIMER</span>
+                        <RoundDurationPicker
+                          value={roundDurationSeconds}
+                          onChange={setRoundDurationSeconds}
+                          disabled={busy}
+                        />
+                      </div>
+                    )}
                     <div className="setting-fact">
                       <span>✳</span>
                       <p>
@@ -696,14 +724,16 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                     </div>
                     {isHost ? (
                       <button
-                        className="primary-button create-room-button"
+                        className="green-button create-room-button"
                         disabled={
                           room.players.length < 4 ||
                           room.players.length > 12 ||
                           onlineCount !== room.players.length
                         }
                         onClick={() =>
-                          void perform(callback => socket?.emit("game:start", callback))
+                          void perform(callback =>
+                            socket?.emit("game:start", { durationSeconds: roundDurationSeconds }, callback),
+                          )
                         }>
                         {room.players.length < 4
                           ? `Need ${4 - room.players.length} more players`
@@ -1213,6 +1243,29 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
             )}
           </section>
         )}
+        {room?.stage === "lobby" && (
+          <section className="online-panel px-4 my-2 py-2">
+            <ul className="online-fineprint">
+              <span className="font-bold">RULES:</span>
+              <li>
+                <span className="fineprint-lock">◇</span>
+                <span><span className="text-blue-300">Judge</span> and <span className="text-ink">Insider</span> secretly know the word.</span>
+              </li>
+              <li>
+                <span className="fineprint-lock">◇</span>
+                <span>Ask (Yes/No) questions to the <span className="text-blue-300">Judge</span> to find the word.</span>
+              </li>
+              <li>
+                <span className="fineprint-lock">◇</span>
+                <span>Find the <span className="text-ink">Insider</span> before time runs out.</span>
+              </li>
+              <li>
+                <span className="fineprint-lock">◇</span>
+                <span>After guessing, vote for the Insider.</span>
+              </li>
+            </ul>
+          </section>
+        )}
       </div>
 
       {guessOpen && (
@@ -1303,13 +1356,21 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                   <div>
                     <strong>Restart game</strong>
                     <span>Deal new roles and begin a fresh round.</span>
+                    <div className="host-restart-duration">
+                      <span className="field-label">ROUND TIMER</span>
+                      <RoundDurationPicker
+                        value={roundDurationSeconds}
+                        onChange={setRoundDurationSeconds}
+                        disabled={busy}
+                      />
+                    </div>
                   </div>
                   {confirmRestart ? (
                     <div className="host-settings-confirm">
                       <button
                         className="host-settings-action host-settings-danger"
                         disabled={busy || room.players.length < 4 || onlineCount !== room.players.length}
-                        onClick={() => void restartGame()}>
+                        onClick={() => void restartGame(roundDurationSeconds)}>
                         Restart now
                       </button>
                       <button

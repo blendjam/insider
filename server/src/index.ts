@@ -11,6 +11,7 @@ const moduleLocation = import.meta.url
 const modulePath = moduleLocation.startsWith('file:') ? fileURLToPath(moduleLocation) : moduleLocation
 const __dirname = dirname(modulePath)
 const decks = decksJson as Record<string, string[]>
+const roundDurations = new Set([30, 60, 90, 120, 150, 180])
 const port = Number.parseInt(process.env.PORT || '3001', 10)
 const allowedOrigins = new Set(
   (process.env.CLIENT_ORIGIN || 'http://localhost:5173')
@@ -73,6 +74,7 @@ interface Room {
   hostId: string
   stage: Stage
   round: number
+  roundDurationSeconds: number
   players: Map<string, Player>
   word: string | null
   deadline: number | null
@@ -101,7 +103,7 @@ interface ClientToServerEvents {
   'room:kick': (input: { playerId: string }, callback: AckCallback) => void
   'room:category': (input: { category: string }, callback: AckCallback) => void
   'room:ready': (input: { ready: boolean }, callback: AckCallback) => void
-  'game:start': (callback: AckCallback) => void
+  'game:start': (input: { durationSeconds: number }, callback: AckCallback) => void
   'game:continue': (callback: AckCallback) => void
   'game:guess': (input: { guess: string }, callback: AckCallback<{ solverId: string }>) => void
   'game:end-discussion': (callback: AckCallback) => void
@@ -109,7 +111,7 @@ interface ClientToServerEvents {
   'game:ballot': (input: { targetId: string }, callback: AckCallback) => void
   'game:tie-break': (input: { targetId: string }, callback: AckCallback) => void
   'game:end-round': (callback: AckCallback) => void
-  'game:restart': (callback: AckCallback) => void
+  'game:restart': (input: { durationSeconds: number }, callback: AckCallback) => void
   'game:play-again': (callback: AckCallback) => void
 }
 
@@ -183,6 +185,7 @@ function privateRole(player: Player, room: Room): void {
   if (room.stage === 'lobby' || !player.role) return
   playerSocket(player)?.emit('player:private', {
     round: room.round,
+    roundDurationSeconds: room.roundDurationSeconds,
     role: player.role,
     word: player.role === 'judge' || player.role === 'insider' ? room.word : null,
     category: room.category,
@@ -244,6 +247,7 @@ function makeRoom({ name, category, code, socket }: { name: string; category: st
     hostId: playerId,
     stage: 'lobby',
     round: 0,
+    roundDurationSeconds: 180,
     players: new Map([[playerId, player]]),
     word: null,
     deadline: null,
@@ -408,7 +412,7 @@ function returnToLobby(room: Room): void {
 function completeReveal(room: Room): void {
   if (room.stage !== 'reveal') return
   if ([...room.players.values()].every((player) => player.connected && player.ready)) {
-    setStage(room, 'questions', 180)
+    setStage(room, 'questions', room.roundDurationSeconds)
     broadcast(room)
   }
 }
@@ -535,12 +539,14 @@ io.on('connection', (socket) => {
     return undefined
   }))
 
-  socket.on('game:start', (callback) => handleAck(socket, callback, () => {
+  socket.on('game:start', (input, callback) => handleAck(socket, callback, () => {
     const { room, player } = requireRoom(socket)
     if (player.id !== room.hostId || room.stage !== 'lobby') throw new Error('Only the host can start a lobby.')
     if (room.players.size < 4) throw new Error('At least four players are needed.')
     if (room.players.size > 12) throw new Error('A room can have at most twelve players.')
     if (connectedPlayers(room).length !== room.players.size) throw new Error('Everyone needs to be connected before the game starts.')
+    if (!roundDurations.has(input?.durationSeconds)) throw new Error('Choose a valid round timer.')
+    room.roundDurationSeconds = input.durationSeconds
     startRound(room)
     return undefined
   }))
@@ -550,7 +556,7 @@ io.on('connection', (socket) => {
     if (player.id !== room.hostId || room.stage !== 'reveal') {
       throw new Error('Only the host can start the game from the role reveal.')
     }
-    setStage(room, 'questions', 180)
+    setStage(room, 'questions', room.roundDurationSeconds)
     broadcast(room)
     return undefined
   }))
@@ -622,12 +628,14 @@ io.on('connection', (socket) => {
     return undefined
   }))
 
-  socket.on('game:restart', (callback) => handleAck(socket, callback, () => {
+  socket.on('game:restart', (input, callback) => handleAck(socket, callback, () => {
     const { room, player } = requireRoom(socket)
     if (player.id !== room.hostId) throw new Error('Only the host can restart the game.')
     if (room.stage === 'lobby') throw new Error('The game has not started yet.')
     if (room.players.size < 4 || room.players.size > 12) throw new Error('At least four players are needed to restart.')
     if (connectedPlayers(room).length !== room.players.size) throw new Error('Everyone needs to reconnect before restarting.')
+    if (!roundDurations.has(input?.durationSeconds)) throw new Error('Choose a valid round timer.')
+    room.roundDurationSeconds = input.durationSeconds
     startRound(room)
     return undefined
   }))
