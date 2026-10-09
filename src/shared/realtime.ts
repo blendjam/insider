@@ -35,6 +35,7 @@ export type PublicRoom = {
 }
 
 export type PrivateRole = {
+  round: number
   role: PlayerRole
   word: string | null
   category: string
@@ -48,6 +49,7 @@ export type Ack<T = undefined> =
 
 export type ServerToClientEvents = {
   'room:update': (room: PublicRoom) => void
+  'room:kicked': () => void
   'player:private': (role: PrivateRole) => void
   'room:error': (message: string) => void
 }
@@ -66,6 +68,7 @@ export type ClientToServerEvents = {
     callback: (result: Ack<{ room: string; playerId: string }>) => void,
   ) => void
   'room:leave': () => void
+  'room:kick': (input: { playerId: string }, callback: (result: Ack) => void) => void
   'room:category': (input: { category: string }, callback: (result: Ack) => void) => void
   'room:ready': (input: { ready: boolean }, callback: (result: Ack) => void) => void
   'game:start': (callback: (result: Ack) => void) => void
@@ -74,5 +77,7 @@ export type ClientToServerEvents = {
   'game:hand-vote': (input: { thinksInsider: boolean }, callback: (result: Ack) => void) => void
   'game:ballot': (input: { targetId: string }, callback: (result: Ack) => void) => void
   'game:tie-break': (input: { targetId: string }, callback: (result: Ack) => void) => void
+  'game:end-round': (callback: (result: Ack) => void) => void
+  'game:restart': (callback: (result: Ack) => void) => void
   'game:play-again': (callback: (result: Ack) => void) => void
 }

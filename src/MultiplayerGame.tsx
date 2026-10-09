@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState, type FormEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { io, type Socket } from "socket.io-client";
 import type {
   Ack,
@@ -173,7 +173,13 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
   const [room, setRoom] = useState<PublicRoom | null>(null);
   const [playerId, setPlayerId] = useState("");
   const [privateRole, setPrivateRole] = useState<PrivateRole | null>(null);
+  const privateRoleRef = useRef<PrivateRole | null>(null);
   const [roleVisible, setRoleVisible] = useState(false);
+  const [selectedBallotId, setSelectedBallotId] = useState("");
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const [kickConfirmId, setKickConfirmId] = useState("");
+  const [confirmRestart, setConfirmRestart] = useState(false);
+  const [confirmEndRound, setConfirmEndRound] = useState(false);
   const [guess, setGuess] = useState("");
   const [guessOpen, setGuessOpen] = useState(false);
   const [timeNow, setTimeNow] = useState(Date.now());
@@ -190,8 +196,13 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
     : "";
 
   useEffect(() => {
-    const client = io(import.meta.env.VITE_SOCKET_URL || undefined, {
-      path:"/insider/socket.io/",
+    const isInsiderSubpath =
+      import.meta.env.PROD &&
+      (window.location.pathname === "/insider" ||
+        window.location.pathname.startsWith("/insider/"));
+    const socketUrl = isInsiderSubpath ? undefined : import.meta.env.VITE_SOCKET_URL || undefined;
+    const client = io(socketUrl, {
+      path: isInsiderSubpath ? "/insider/socket.io/" : "/socket.io/",
       autoConnect: true,
       transports: ["websocket", "polling"],
       tryAllTransports: true,
@@ -216,9 +227,27 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
     });
     client.on("disconnect", () => setConnected(false));
     client.on("room:update", nextRoom => setRoom(nextRoom));
-    client.on("player:private", role => {
-      setPrivateRole(role);
+    client.on("room:kicked", () => {
+      localStorage.removeItem(SESSION_KEY);
+      setRoom(null);
+      setPlayerId("");
+      setPrivateRole(null);
+      privateRoleRef.current = null;
       setRoleVisible(false);
+      setSettingsOpen(false);
+      setNotice("The host removed you from the room.");
+      window.history.replaceState({}, "", window.location.pathname);
+    });
+    client.on("player:private", role => {
+      const previousRole = privateRoleRef.current;
+      const roleChanged =
+        previousRole?.round !== role.round ||
+        previousRole?.role !== role.role ||
+        previousRole?.word !== role.word ||
+        previousRole?.category !== role.category;
+      privateRoleRef.current = role;
+      setPrivateRole(role);
+      if (roleChanged) setRoleVisible(false);
     });
     client.on("room:error", message => setNotice(message));
     return () => {
@@ -234,6 +263,10 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
   }, [room?.deadline]);
 
   useEffect(() => {
+    if (guessOpen && room?.stage !== "questions") setGuessOpen(false);
+  }, [guessOpen, room?.stage]);
+
+  useEffect(() => {
     if (!notice) return;
     const timeout = window.setTimeout(() => setNotice(""), 4000);
     return () => window.clearTimeout(timeout);
@@ -245,6 +278,10 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
     params.set("room", room.code);
     window.history.replaceState({}, "", `${window.location.pathname}?${params.toString()}`);
   }, [room]);
+
+  useEffect(() => {
+    if (room?.stage !== "ballot" || privateRole?.hasBallot) setSelectedBallotId("");
+  }, [room?.stage, privateRole?.hasBallot]);
 
   useEffect(() => {
     localStorage.setItem(
@@ -360,6 +397,25 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
     setNotice("Correct. The group has two minutes to find the Insider.");
   }
 
+  async function restartGame() {
+    if (await perform(callback => socket?.emit("game:restart", callback))) {
+      setConfirmRestart(false);
+      setKickConfirmId("");
+    }
+  }
+
+  async function endRoundEarly() {
+    if (await perform(callback => socket?.emit("game:end-round", callback))) {
+      setConfirmEndRound(false);
+    }
+  }
+
+  async function kickPlayer(targetId: string) {
+    if (await perform(callback => socket?.emit("room:kick", { playerId: targetId }, callback))) {
+      setKickConfirmId("");
+    }
+  }
+
   async function copyInvite() {
     try {
       await navigator.clipboard.writeText(inviteUrl);
@@ -376,6 +432,7 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
     setRoom(null);
     setPlayerId("");
     setPrivateRole(null);
+    privateRoleRef.current = null;
     setRoleVisible(false);
     setGuessOpen(false);
     setNotice("");
@@ -410,13 +467,12 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
       <div className="page-wrap">
         <section className="intro-row online-intro">
           <div>
-            <div className="eyebrow">
-              <span className="eyebrow-line" /> THE GROUP CHAT IS IN SESSION
-            </div>
             <h1 className="text-control-text-active">
               Trust is a <span className="text-text-primary">game.</span>
             </h1>
-            <p className="intro-copy">One word. One Insider. Ask away. Can you find the insider?</p>
+            <div className="eyebrow mt-3">
+              <span className="eyebrow-line" /> One word. One Insider. Ask away. Can you find the insider?
+            </div>
           </div>
           <div className="intro-stamp">
             <span>
@@ -576,7 +632,7 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                     <div className="room-player-list">
                       {players.map((player, index) => (
                         <div className="room-player-row" key={player.id}>
-                          <span className={`avatar avatar-${index % 5}`}>
+                          <span className={`flex items-center justify-center w-6.75 h-6.75 rounded-full avatar-${index % 5}`}>
                             {initials(player.name)}
                           </span>
                           <span className="room-player-name">
@@ -707,17 +763,22 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                             : "Find the word."}
                       </h3>
                       <p>
-                        {privateRole.role === "citizen" ? (
-                          "You don’t know the secret word. Listen closely, ask questions, and spot the Insider."
-                        ) : (
-                          <>
-                            The secret word is <strong>{privateRole.word}</strong>.{" "}
+                        {privateRole.role === "citizen" &&
+                          "You don’t know the secret word. Listen closely, ask questions, and spot the Insider."}
+                      </p>
+                      {privateRole.role !== "citizen" && (
+                        <>
+                          <div className="private-secret-word">
+                            <span>THE SECRET WORD</span>
+                            <strong>{privateRole.word}</strong>
+                          </div>
+                          <p>
                             {privateRole.role === "judge"
                               ? "Guide the round and keep the conversation moving."
                               : "Help the group find it without giving yourself away."}
-                          </>
-                        )}
-                      </p>
+                          </p>
+                        </>
+                      )}
                     </>
                   ) : (
                     <div className="role-card-cover" aria-hidden="true">
@@ -735,11 +796,12 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                   <button
                     className="primary-button"
                     disabled={!privateRole || busy}
-                    onClick={() =>
+                    onClick={() => {
+                      setRoleVisible(false);
                       void perform(callback =>
                         socket?.emit("room:ready", { ready: !ownPlayer?.ready }, callback),
-                      )
-                    }>
+                      );
+                    }}>
                     {ownPlayer?.ready ? "I’m ready ✓" : "Got it — ready"} <span>→</span>
                   </button>
                 </div>
@@ -830,7 +892,7 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                 <div className="discussion-callout">
                   <span className="callout-mark">“</span>
                   <div>
-                    <span>THE LAST QUESTION CAME FROM</span>
+                    <span>The solver is: </span>
                     <strong>{solver?.name ?? "The solver"}</strong>
                   </div>
                   <span className="callout-note">
@@ -843,14 +905,14 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                   <h3>Time to compare notes.</h3>
                   <p>
                     Who asked something a little too specific? Who was steering the conversation?
-                    Talk it out, then the host can move to accusations.
+                    Talk it out, then the host or Judge can move to accusations.
                   </p>
                 </div>
                 <div className="online-game-footer">
                   <div className="action-hint">
                     <span className="hint-dot" /> TWO MINUTES TO DISCUSS
                   </div>
-                  {isHost ? (
+                  {isHost || privateRole?.role === "judge" ? (
                     <button
                       className="primary-button"
                       onClick={() =>
@@ -860,7 +922,7 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                     </button>
                   ) : (
                     <div className="waiting-host">
-                      <span className="waiting-pulse" /> The host will end the discussion.
+                      <span className="waiting-pulse" /> The host or Judge will end the discussion.
                     </div>
                   )}
                 </div>
@@ -929,8 +991,8 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                   Who’s the <span>Insider?</span>
                 </h2>
                 <p className="stage-lead">
-                  Vote privately. The room will only see the result once every connected player has
-                  voted.
+                  Choose a player, then cast your ballot. The room will only see the result once
+                  every connected player has voted.
                 </p>
                 {!privateRole?.hasBallot ? (
                   <div className="ballot-card">
@@ -945,14 +1007,11 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                         .filter(player => player.id !== playerId)
                         .map((player, index) => (
                           <button
-                            className="ballot-option"
+                            className={`ballot-option ${selectedBallotId === player.id ? "ballot-option-selected" : ""}`}
                             key={player.id}
                             disabled={busy}
-                            onClick={() =>
-                              void perform(callback =>
-                                socket?.emit("game:ballot", { targetId: player.id }, callback),
-                              )
-                            }>
+                            aria-pressed={selectedBallotId === player.id}
+                            onClick={() => setSelectedBallotId(player.id)}>
                             <span className={`avatar avatar-${index % 5}`}>
                               {initials(player.name)}
                             </span>
@@ -961,8 +1020,21 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                           </button>
                         ))}
                     </div>
+                    <button
+                      className="primary-button ballot-submit"
+                      disabled={!selectedBallotId || busy}
+                      onClick={() => {
+                        if (selectedBallotId) {
+                          void perform(callback =>
+                            socket?.emit("game:ballot", { targetId: selectedBallotId }, callback),
+                          );
+                        }
+                      }}>
+                      Cast vote <span>→</span>
+                    </button>
                     <div className="ballot-confidential">
-                      ◇ Votes stay hidden until everyone’s ballot is in.
+                      ◇ Votes stay hidden until everyone’s ballot is in. You can change your
+                      selection before casting.
                     </div>
                   </div>
                 ) : (
@@ -1031,19 +1103,14 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                 <div className="result-icon">
                   {room.winner === "commons" ? "✓" : room.winner === "nobody" ? "◷" : "◉"}
                 </div>
-                <div className="section-kicker">
+                <div className="section-kicker"></div>
+                <h2>
                   {room.winner === "commons"
                     ? "THE ROOM GOT IT RIGHT"
                     : room.winner === "nobody"
                       ? "TIME’S UP"
                       : "THE INSIDER GETS AWAY"}
-                </div>
-                <h2>
-                  {room.winner === "commons"
-                    ? "Well played."
-                    : room.winner === "nobody"
-                      ? "The word wins."
-                      : "Nice try."}
+                
                 </h2>
                 <p className="result-reason">{room.outcomeReason}</p>
                 <div className="reveal-answer">
@@ -1051,7 +1118,17 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
                   <strong>{room.word}</strong>
                   <span className="answer-category">{room.category.toUpperCase()}</span>
                 </div>
-                <div className="reveal-players">
+                {isHost && (
+                  <div className="result-deck-picker">
+                    <span className="field-label">NEXT ROUND’S WORD DECK</span>
+                    <DeckPicker
+                      value={room.category}
+                      onChange={nextCategory => void changeCategory(nextCategory)}
+                      disabled={busy}
+                    />
+                  </div>
+                )}
+                <div className="reveal-players mt-2">
                   {players.map((player, index) => {
                     const role = room.roles?.[player.id] as PlayerRole | undefined;
                     return (
@@ -1135,6 +1212,142 @@ function MultiplayerGame({ onPassPlay }: { onPassPlay: () => void }) {
               </button>
             </form>
           </section>
+        </div>
+      )}
+
+      {room && isHost && (
+        <div className="host-settings">
+          {settingsOpen && (
+            <section
+              className="host-settings-panel"
+              id="host-settings-panel"
+              aria-label="Host settings">
+              <div className="host-settings-heading">
+                <span>HOST SETTINGS</span>
+                <button
+                  className="host-settings-close"
+                  onClick={() => {
+                    setSettingsOpen(false);
+                    setKickConfirmId("");
+                    setConfirmRestart(false);
+                    setConfirmEndRound(false);
+                  }}
+                  aria-label="Close host settings">
+                  ×
+                </button>
+              </div>
+              {room.stage !== "lobby" && (
+                <div className="host-restart-option">
+                  <div>
+                    <strong>Restart game</strong>
+                    <span>Deal new roles and begin a fresh round.</span>
+                  </div>
+                  {confirmRestart ? (
+                    <div className="host-settings-confirm">
+                      <button
+                        className="host-settings-action host-settings-danger"
+                        disabled={busy || room.players.length < 4 || onlineCount !== room.players.length}
+                        onClick={() => void restartGame()}>
+                        Restart now
+                      </button>
+                      <button
+                        className="host-settings-action"
+                        onClick={() => setConfirmRestart(false)}>
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      className="host-settings-action"
+                      disabled={busy || room.players.length < 4 || onlineCount !== room.players.length}
+                      onClick={() => setConfirmRestart(true)}>
+                      Restart
+                    </button>
+                  )}
+                </div>
+              )}
+              {room.stage !== "lobby" && room.stage !== "result" && (
+                <div className="host-restart-option">
+                  <div>
+                    <strong>End current round</strong>
+                    <span>Finish now without waiting for the timer or remaining votes.</span>
+                  </div>
+                  {confirmEndRound ? (
+                    <div className="host-settings-confirm">
+                      <button
+                        className="host-settings-action host-settings-danger"
+                        disabled={busy}
+                        onClick={() => void endRoundEarly()}>
+                        End round
+                      </button>
+                      <button
+                        className="host-settings-action"
+                        onClick={() => setConfirmEndRound(false)}>
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      className="host-settings-action host-settings-danger"
+                      disabled={busy}
+                      onClick={() => setConfirmEndRound(true)}>
+                      End now
+                    </button>
+                  )}
+                </div>
+              )}
+              <div className="host-kick-list">
+                <span className="host-kick-heading">REMOVE A PLAYER</span>
+                {players.filter(player => player.id !== playerId).length === 0 ? (
+                  <p className="host-settings-empty">No other players in the room.</p>
+                ) : (
+                  players
+                    .filter(player => player.id !== playerId)
+                    .map(player => (
+                      <div className="host-kick-row" key={player.id}>
+                        <span>{player.name}</span>
+                        {kickConfirmId === player.id ? (
+                          <div className="host-settings-confirm">
+                            <button
+                              className="host-settings-action host-settings-danger"
+                              disabled={busy}
+                              onClick={() => void kickPlayer(player.id)}>
+                              Remove
+                            </button>
+                            <button
+                              className="host-settings-action"
+                              onClick={() => setKickConfirmId("")}>
+                              Cancel
+                            </button>
+                          </div>
+                        ) : (
+                          <button
+                            className="host-settings-action host-settings-danger"
+                            disabled={busy}
+                            onClick={() => setKickConfirmId(player.id)}>
+                            Kick
+                          </button>
+                        )}
+                      </div>
+                    ))
+                )}
+              </div>
+              {room.stage !== "lobby" && (
+                <p className="host-settings-note">
+                  Kicking a player during a game restarts the round, or returns everyone to the
+                  lobby if fewer than four remain.
+                </p>
+              )}
+            </section>
+          )}
+          <button
+            className={`host-settings-fab ${settingsOpen ? "host-settings-fab-open" : ""}`}
+            aria-label={settingsOpen ? "Close host settings" : "Open host settings"}
+            aria-expanded={settingsOpen}
+            aria-controls="host-settings-panel"
+            onClick={() => setSettingsOpen(open => !open)}>
+            <span aria-hidden="true">⚙</span>
+          </button>
         </div>
       )}
 

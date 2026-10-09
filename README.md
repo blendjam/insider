@@ -31,6 +31,8 @@ cp server/.env.example server/.env
 
 Set `CLIENT_ORIGIN` in `server/.env` to the origin (scheme and hostname) where players open the game. For example, use `https://games.example.com`; multiple origins can be separated by commas. Cloudflare Pages previews can be allowed with a one-level HTTPS wildcard such as `https://*.insider-69n.pages.dev`. PM2 runs from `server/` so the server loads this `server/.env` file. The Node server serves the built `dist/` app and the Socket.IO endpoint from the same port, so a reverse proxy can forward HTTP and WebSocket traffic to port `3001`.
 
+When the production site is mounted at `/insider`, the browser connects to the same origin at `/insider/socket.io/`. Configure the reverse proxy to forward that WebSocket path to the Node server's `/socket.io/` endpoint (stripping the `/insider` prefix). This avoids using a local `VITE_SOCKET_URL` in this same-origin production deployment. Local development continues to use `/socket.io/` through Vite's proxy.
+
 Start the single server process with PM2 from the project root:
 
 ```sh

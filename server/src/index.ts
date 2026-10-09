@@ -98,6 +98,7 @@ interface ClientToServerEvents {
   'room:join': (input: { code: string; name: string }, callback: AckCallback<{ room: string; playerId: string }>) => void
   'room:resume': (input: { code: string; playerId: string }, callback: AckCallback<{ room: string; playerId: string }>) => void
   'room:leave': () => void
+  'room:kick': (input: { playerId: string }, callback: AckCallback) => void
   'room:category': (input: { category: string }, callback: AckCallback) => void
   'room:ready': (input: { ready: boolean }, callback: AckCallback) => void
   'game:start': (callback: AckCallback) => void
@@ -106,12 +107,15 @@ interface ClientToServerEvents {
   'game:hand-vote': (input: { thinksInsider: boolean }, callback: AckCallback) => void
   'game:ballot': (input: { targetId: string }, callback: AckCallback) => void
   'game:tie-break': (input: { targetId: string }, callback: AckCallback) => void
+  'game:end-round': (callback: AckCallback) => void
+  'game:restart': (callback: AckCallback) => void
   'game:play-again': (callback: AckCallback) => void
 }
 
 interface ServerToClientEvents {
   'room:update': (room: ReturnType<typeof publicRoom>) => void
-  'player:private': (role: { role: Role | null; word: string | null; category: string; handVote: boolean | null; hasBallot: boolean }) => void
+  'room:kicked': () => void
+  'player:private': (role: { round: number; role: Role | null; word: string | null; category: string; handVote: boolean | null; hasBallot: boolean }) => void
   'room:error': (message: string) => void
 }
 
@@ -177,6 +181,7 @@ function playerSocket(player: Player | undefined): GameSocket | undefined {
 function privateRole(player: Player, room: Room): void {
   if (room.stage === 'lobby' || !player.role) return
   playerSocket(player)?.emit('player:private', {
+    round: room.round,
     role: player.role,
     word: player.role === 'judge' || player.role === 'insider' ? room.word : null,
     category: room.category,
@@ -366,17 +371,37 @@ function startRound(room: Room): void {
   room.ballots.clear()
   room.tiedPlayerIds = []
   room.guessAt.clear()
+  const players = [...room.players.values()]
+  const judge = players[randomBytes(4).readUInt32BE(0) % players.length]
+  if (!judge) throw new Error('Unable to assign a Judge.')
   for (const player of room.players.values()) {
     player.ready = false
-    player.role = player.id === room.hostId ? 'judge' : 'citizen'
+    player.role = player.id === judge.id ? 'judge' : 'citizen'
   }
-  const insiderPool = [...room.players.values()].filter((player) => player.id !== room.hostId)
+  const insiderPool = players.filter((player) => player.id !== judge.id)
   const insider = insiderPool[randomBytes(4).readUInt32BE(0) % insiderPool.length]
   if (!insider) throw new Error('Unable to assign an Insider.')
   insider.role = 'insider'
   setStage(room, 'reveal', null)
   for (const player of room.players.values()) privateRole(player, room)
   broadcast(room)
+}
+
+function returnToLobby(room: Room): void {
+  room.stage = 'lobby'
+  room.word = null
+  room.deadline = null
+  room.solverId = null
+  room.handVotes.clear()
+  room.ballots.clear()
+  room.tiedPlayerIds = []
+  room.winner = null
+  room.outcomeReason = null
+  room.guessAt.clear()
+  for (const player of room.players.values()) {
+    player.ready = false
+    player.role = null
+  }
 }
 
 function completeReveal(room: Room): void {
@@ -410,6 +435,41 @@ io.on('connection', (socket) => {
     broadcast(room)
     tryCompleteVotes(room)
   })
+
+  socket.on('room:kick', (input, callback) => handleAck(socket, callback, () => {
+    const { room, player: host } = requireRoom(socket)
+    if (host.id !== room.hostId) throw new Error('Only the host can remove players.')
+    const target = room.players.get(input?.playerId)
+    if (!target || target.id === host.id) throw new Error('Choose another player in the room.')
+
+    const wasInGame = room.stage !== 'lobby'
+    const targetSocket = playerSocket(target)
+    targetSocket?.emit('room:kicked')
+    targetSocket?.leave(room.code)
+    if (targetSocket) {
+      targetSocket.data.roomCode = undefined
+      targetSocket.data.playerId = undefined
+    }
+    room.players.delete(target.id)
+    room.handVotes.delete(target.id)
+    room.ballots.delete(target.id)
+    room.tiedPlayerIds = room.tiedPlayerIds.filter((id) => id !== target.id)
+    room.guessAt.delete(target.id)
+    room.lastActivity = Date.now()
+    updateEmptySince(room)
+
+    if (wasInGame) {
+      const players = connectedPlayers(room)
+      if (players.length >= 4 && players.length === room.players.size) startRound(room)
+      else {
+        returnToLobby(room)
+        broadcast(room)
+      }
+    } else {
+      broadcast(room)
+    }
+    return undefined
+  }))
 
   socket.on('room:join', (input, callback) => handleAck(socket, callback, () => {
     const code = cleanCode(input?.code)
@@ -446,7 +506,9 @@ io.on('connection', (socket) => {
 
   socket.on('room:category', (input, callback) => handleAck(socket, callback, () => {
     const { room, player } = requireRoom(socket)
-    if (room.stage !== 'lobby' || player.id !== room.hostId) throw new Error('Only the host can change the word deck.')
+    if ((room.stage !== 'lobby' && room.stage !== 'result') || player.id !== room.hostId) {
+      throw new Error('Only the host can change the word deck between rounds.')
+    }
     if (!Object.hasOwn(decks, input?.category)) throw new Error('Choose a valid word deck.')
     room.category = input.category
     broadcast(room)
@@ -490,7 +552,9 @@ io.on('connection', (socket) => {
   socket.on('game:end-discussion', (callback) => handleAck(socket, callback, () => {
     const { room, player } = requireRoom(socket)
     if (room.stage !== 'discussion') throw new Error('The discussion has already ended.')
-    if (player.id !== room.hostId) throw new Error('Only the host can end the discussion early.')
+    if (player.id !== room.hostId && player.role !== 'judge') {
+      throw new Error('Only the host or the Judge can end the discussion early.')
+    }
     room.handVotes.clear()
     setStage(room, 'hand-vote', null)
     broadcast(room)
@@ -534,6 +598,24 @@ io.on('connection', (socket) => {
     if (room.stage !== 'result' || player.id !== room.hostId) throw new Error('Only the host can start another round.')
     if (connectedPlayers(room).length !== room.players.size) throw new Error('Everyone needs to reconnect before the next round.')
     startRound(room)
+    return undefined
+  }))
+
+  socket.on('game:restart', (callback) => handleAck(socket, callback, () => {
+    const { room, player } = requireRoom(socket)
+    if (player.id !== room.hostId) throw new Error('Only the host can restart the game.')
+    if (room.stage === 'lobby') throw new Error('The game has not started yet.')
+    if (room.players.size < 4 || room.players.size > 12) throw new Error('At least four players are needed to restart.')
+    if (connectedPlayers(room).length !== room.players.size) throw new Error('Everyone needs to reconnect before restarting.')
+    startRound(room)
+    return undefined
+  }))
+
+  socket.on('game:end-round', (callback) => handleAck(socket, callback, () => {
+    const { room, player } = requireRoom(socket)
+    if (player.id !== room.hostId) throw new Error('Only the host can end the round early.')
+    if (room.stage === 'lobby' || room.stage === 'result') throw new Error('There is no active round to end.')
+    finish(room, 'nobody', 'The host ended the round early.')
     return undefined
   }))
 
